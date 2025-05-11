@@ -3,7 +3,8 @@ from config import MONGODB_URI
 import asyncio
 
 client = AsyncIOMotorClient(MONGODB_URI)
-db = client.get_default_database()
+db = client["find_team_system"]
+
 
 async def test_connection():
     try:

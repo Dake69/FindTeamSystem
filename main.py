@@ -7,6 +7,7 @@ from database.db import test_connection
 from config import *
 
 from handlers.reg import router as reg_router
+from handlers.admin.admin import router as admin_router
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -17,6 +18,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
 
     dp.include_router(reg_router)
+    dp.include_router(admin_router)
 
     await dp.start_polling(bot)
 
