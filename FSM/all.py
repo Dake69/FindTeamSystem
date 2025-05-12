@@ -44,3 +44,9 @@ class AddLanguageFSM(StatesGroup):
 class EditLanguageFSM(StatesGroup):
     waiting_for_name = State()
     waiting_for_code = State()
+
+class FilterFSM(StatesGroup):
+    games = State()     
+    ranks = State()     
+    gender = State()      
+    age = State()  

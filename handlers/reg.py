@@ -10,6 +10,7 @@ from keyboards.reg import *
 from database.users import *
 from database.games import get_game_by_name
 from database.language import get_all_languages
+from database.filtrs import *
 
 
 router = Router()
@@ -116,7 +117,7 @@ async def choose_games(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Выберите хотя бы одну игру!", show_alert=True)
             return
         await state.update_data(games_with_ranks={})
-        await state.set_state(RegistrationInline.rank)  # <--- ВАЖНО!
+        await state.set_state(RegistrationInline.rank)
         await ask_game_rank(callback, state, 0)
     else:
         await callback.answer()
@@ -241,3 +242,22 @@ async def select_language(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     await state.clear()
+
+@router.callback_query(F.data == "main_menu")
+async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
+    temp = await get_filter_by_user(callback.from_user.id)
+    if temp:
+        pass
+    else:
+        await add_filter(
+            user_id=callback.from_user.id,
+        )
+    text = (
+        "🏠 <b>Главное меню</b>\n\n"
+        "📰 <b>Лента</b> — просматривайте анкеты других пользователей и ищите тиммейтов по вашим фильтрам.\n\n"
+        "👤 <b>Личный кабинет</b> — управляйте своей анкетой, играми и личной информацией.\n\n"
+        "⚙️ <b>Настройки</b> — настройте фильтры поиска, параметры профиля и другие опции.\n\n"
+        "Выберите нужный раздел с помощью кнопок ниже 👇"
+    )
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb)
+    await callback.answer()
