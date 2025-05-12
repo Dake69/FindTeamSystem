@@ -1,12 +1,16 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from FSM.all import RegistrationInline
+import logging
+
 
 from keyboards.reg import *
-
 from database.users import *
+from database.games import get_game_by_name
+from database.language import get_all_languages
+
 
 router = Router()
 
@@ -65,15 +69,9 @@ async def get_age(message: Message, state: FSMContext):
 async def get_gender(callback: CallbackQuery, state: FSMContext):
     gender = callback.data.split("_")[1]
     await state.update_data(gender=gender)
-    await callback.message.edit_text("🏙 Введите ваш <b>город</b>:", parse_mode="HTML")
-    await state.set_state(RegistrationInline.city)
-    await callback.answer()
-
-@router.message(RegistrationInline.city, F.text)
-async def get_city(message: Message, state: FSMContext):
-    await state.update_data(city=message.text)
-    await message.answer("📝 Напишите <b>коротко о себе</b> (био):", parse_mode="HTML")
+    await callback.message.edit_text("📝 Напишите <b>коротко о себе</b> (био):", parse_mode="HTML")
     await state.set_state(RegistrationInline.about)
+    await callback.answer()
 
 @router.message(RegistrationInline.about, F.text)
 async def get_about(message: Message, state: FSMContext):
@@ -99,6 +97,7 @@ async def get_phone(message: Message, state: FSMContext):
 async def choose_games(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected_games = data.get("games", [])
+    logging.info(f"[choose_games] selected_games: {selected_games}, callback.data: {callback.data}")
     if callback.data.startswith("game_"):
         game = callback.data[5:]
         if game in selected_games:
@@ -106,6 +105,7 @@ async def choose_games(callback: CallbackQuery, state: FSMContext):
         else:
             selected_games.append(game)
         await state.update_data(games=selected_games)
+        logging.info(f"[choose_games] updated selected_games: {selected_games}")
         await callback.message.edit_text(
             "🎮 Выберите одну или несколько игр (нажимайте по очереди):",
             reply_markup=await get_games_keyboard(selected_games),
@@ -115,36 +115,129 @@ async def choose_games(callback: CallbackQuery, state: FSMContext):
         if not selected_games:
             await callback.answer("Выберите хотя бы одну игру!", show_alert=True)
             return
-        data = await state.get_data()
-        result = await add_user(
-            user_id=callback.from_user.id,
-            full_name=data.get('full_name'),
-            nickname=data.get('nickname'),
-            age=data.get('age'),
-            gender=data.get('gender'),
-            city=data.get('city'),
-            about=data.get('about'),
-            phone=data.get('phone'),
-            games=selected_games,
-            username=callback.from_user.username
+        await state.update_data(games_with_ranks={})
+        await state.set_state(RegistrationInline.rank)  # <--- ВАЖНО!
+        await ask_game_rank(callback, state, 0)
+    else:
+        await callback.answer()
+
+async def ask_game_rank(callback, state, game_idx):
+    data = await state.get_data()
+    games = data.get("games", [])
+    logging.info(f"[ask_game_rank] game_idx: {game_idx}, games: {games}")
+    if game_idx >= len(games):
+        await callback.message.edit_text(
+            "🌐 Выберите ваш <b>язык</b> общения:",
+            reply_markup=await get_languages_keyboard(),
+            parse_mode="HTML"
         )
-        if result.get("success"):
-            await callback.message.edit_text(
-                "<b>✅ Регистрация завершена!</b>\n\n"
-                f"👤 <b>Имя:</b> {data.get('full_name')}\n"
-                f"🏷️ <b>Никнейм:</b> {data.get('nickname')}\n"
-                f"🎂 <b>Возраст:</b> {data.get('age')}\n"
-                f"🧑 <b>Пол:</b> {'Мужской' if data.get('gender') == 'male' else 'Женский'}\n"
-                f"🏙 <b>Город:</b> {data.get('city')}\n"
-                f"📱 <b>Телефон:</b> {data.get('phone')}\n"
-                f"🎮 <b>Игры:</b> {', '.join(selected_games)}\n"
-                f"📝 <b>О себе:</b> {data.get('about')}",
-                parse_mode="HTML",
-                reply_markup=main_menu_inline_kb
-            )
-        else:
-            await callback.message.edit_text(
-                f"❌ <b>Ошибка:</b> {result.get('reason')}",
-                parse_mode="HTML"
-            )
-        await state.clear()
+        await state.set_state(RegistrationInline.language)
+        return
+
+    game_name = games[game_idx]
+    game = await get_game_by_name(game_name)
+    ranks = game.get("ranks", [])
+    logging.info(f"[ask_game_rank] game_name: {game_name}, ranks: {ranks}")
+
+    current_text = f"🏆 Выберите ваш <b>ранг</b> в игре <b>{game_name}</b>:"
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=rank, callback_data=f"rank_{game_idx}_{rank}")]
+            for rank in ranks
+        ]
+    )
+
+    if callback.message.text == current_text and callback.message.reply_markup == keyboard:
+        await callback.answer("Вы уже видите этот выбор.")
+        return
+
+    await callback.message.edit_text(
+        current_text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+@router.callback_query(RegistrationInline.rank, F.data.startswith("rank_"))
+async def select_game_rank(callback: CallbackQuery, state: FSMContext):
+    logging.info(f"[select_game_rank] callback.data: {callback.data}")
+    _, game_idx, *rank_parts = callback.data.split("_")
+    game_idx = int(game_idx)
+    rank = "_".join(rank_parts)
+    data = await state.get_data()
+    games = data.get("games", [])
+    games_with_ranks = data.get("games_with_ranks", {})
+    logging.info(f"[select_game_rank] game_idx: {game_idx}, rank: {rank}, games: {games}, games_with_ranks: {games_with_ranks}")
+
+    if game_idx >= len(games):
+        await callback.answer("Ошибка выбора игры.", show_alert=True)
+        logging.warning(f"[select_game_rank] game_idx {game_idx} >= len(games) {len(games)}")
+        return
+
+    game_name = games[game_idx]
+    if games_with_ranks.get(game_name) == rank:
+        await callback.answer("Этот ранг уже выбран.")
+        return
+
+    games_with_ranks[game_name] = rank
+    await state.update_data(games_with_ranks=games_with_ranks)
+    logging.info(f"[select_game_rank] updated games_with_ranks: {games_with_ranks}")
+
+    if game_idx + 1 < len(games):
+        await ask_game_rank(callback, state, game_idx + 1)
+    else:
+        await state.set_state(RegistrationInline.language)
+        await callback.message.edit_text(
+            "🌐 Выберите ваш <b>язык</b> общения:",
+            reply_markup=await get_languages_keyboard(),
+            parse_mode="HTML"
+        )
+    await callback.answer()
+
+async def get_languages_keyboard():
+    langs = await get_all_languages()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=lang["name"], callback_data=f"lang_{lang['_id']}")]
+            for lang in langs
+        ]
+    )
+
+@router.callback_query(RegistrationInline.language, F.data.startswith("lang_"))
+async def select_language(callback: CallbackQuery, state: FSMContext):
+    language_id = callback.data.split("_", 1)[1]
+    await state.update_data(language=language_id)
+    data = await state.get_data()
+    result = await add_user(
+        user_id=callback.from_user.id,
+        full_name=data.get('full_name'),
+        nickname=data.get('nickname'),
+        age=data.get('age'),
+        gender=data.get('gender'),
+        about=data.get('about'),
+        phone=data.get('phone'),
+        games_with_ranks=data.get('games_with_ranks'),
+        username=callback.from_user.username,
+        language=language_id
+    )
+    if result.get("success"):
+        games_str = "\n".join(
+            [f"🎮 <b>{g}</b>: <i>{r}</i>" for g, r in data.get('games_with_ranks', {}).items()]
+        )
+        await callback.message.edit_text(
+            "<b>✅ Регистрация завершена!</b>\n\n"
+            f"👤 <b>Имя:</b> {data.get('full_name')}\n"
+            f"🏷️ <b>Никнейм:</b> {data.get('nickname')}\n"
+            f"🎂 <b>Возраст:</b> {data.get('age')}\n"
+            f"🧑 <b>Пол:</b> {'Мужской' if data.get('gender') == 'male' else 'Женский'}\n"
+            f"📱 <b>Телефон:</b> {data.get('phone')}\n"
+            f"{games_str}\n"
+            f"📝 <b>О себе:</b> {data.get('about')}",
+            parse_mode="HTML",
+            reply_markup=main_menu_inline_kb
+        )
+    else:
+        await callback.message.edit_text(
+            f"❌ <b>Ошибка:</b> {result.get('reason')}",
+            parse_mode="HTML"
+        )
+    await state.clear()

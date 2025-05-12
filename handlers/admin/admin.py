@@ -10,6 +10,8 @@ from bson import ObjectId
 
 from keyboards.admin_keyboards import *
 
+
+from FSM.all import *
 from database.users import *
 from database.games import *
 
@@ -489,4 +491,154 @@ async def admin_delete_genre(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_cancel_to_games_kb())
     else:
         await callback.message.edit_text("❌ Ошибка при удалении жанра.", parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_languages")
+async def admin_languages_menu(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🌐 <b>Управление языками</b>\n\n"
+        "Здесь вы можете добавить новый язык, удалить существующий или посмотреть список всех языков.",
+        parse_mode="HTML",
+        reply_markup=admin_languages_kb
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_add_language")
+async def admin_add_language_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "📝 Введите <b>название языка</b>:",
+        parse_mode="HTML",
+        reply_markup=get_cancel_to_languages_kb()
+    )
+    await state.set_state(AddLanguageFSM.waiting_for_name)
+    await callback.answer()
+
+@router.message(AddLanguageFSM.waiting_for_name)
+async def admin_add_language_name(message: Message, state: FSMContext):
+    await state.update_data(language_name=message.text)
+    await message.answer("🌐 Введите <b>код языка</b> (например, ru, en) или отправьте <code>-</code> чтобы пропустить:",
+        parse_mode="HTML", reply_markup=get_cancel_to_languages_kb())
+    await state.set_state(AddLanguageFSM.waiting_for_code)
+
+@router.message(AddLanguageFSM.waiting_for_code)
+async def admin_add_language_code(message: Message, state: FSMContext):
+    code = message.text if message.text != "-" else None
+    data = await state.get_data()
+    from database.language import add_language
+    result = await add_language(data.get("language_name"), code)
+    if result:
+        await message.answer("✅ Язык успешно добавлен!", reply_markup=get_cancel_to_languages_kb())
+    else:
+        await message.answer("❌ Ошибка при добавлении языка.")
+    await state.clear()
+
+@router.callback_query(F.data == "admin_show_languages")
+async def admin_show_languages(callback: CallbackQuery, state: FSMContext):
+    from database.language import get_all_languages
+    langs = await get_all_languages()
+    if not langs:
+        await callback.message.edit_text("❗️ В базе нет ни одного языка.", parse_mode="HTML")
+        await callback.answer()
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=lang.get("name", "Без названия"), callback_data=f"language_{str(lang['_id'])}")]
+            for lang in langs
+        ] + [
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_languages")]
+        ]
+    )
+
+    await callback.message.edit_text(
+        "🌐 <b>Список всех языков:</b>\n\n"
+        "Нажмите на язык для подробностей или управления.",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("language_"))
+async def admin_language_detail(callback: CallbackQuery, state: FSMContext):
+    language_id = callback.data.split("_", 1)[1]
+    from database.language import get_language_by_id
+    lang = await get_language_by_id(language_id)
+    if not lang:
+        await callback.message.edit_text("❗️ Язык не найден.", parse_mode="HTML")
+        await callback.answer()
+        return
+
+    text = (
+        f"🌐 <b>{lang.get('name', 'Без названия')}</b>\n"
+        f"🔤 <b>Код:</b> {lang.get('code', '—')}"
+    )
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=get_language_manage_kb(language_id)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("admin_edit_language_"))
+async def admin_edit_language_start(callback: CallbackQuery, state: FSMContext):
+    language_id = callback.data.split("_", 3)[3]
+    from database.language import get_language_by_id
+    lang = await get_language_by_id(language_id)
+    if not lang:
+        await callback.message.edit_text("❗️ Язык не найден.", parse_mode="HTML")
+        await callback.answer()
+        return
+    await state.update_data(language_id=language_id)
+    await callback.message.edit_text(
+        f"✏️ <b>Редактирование языка</b>\n\n"
+        f"Текущее название: <b>{lang.get('name', '—')}</b>\n"
+        f"Введите новое название или отправьте <code>-</code> чтобы оставить без изменений:",
+        parse_mode="HTML",
+        reply_markup=get_cancel_to_languages_kb()
+    )
+    await state.set_state(EditLanguageFSM.waiting_for_name)
+    await callback.answer()
+
+@router.message(EditLanguageFSM.waiting_for_name)
+async def admin_edit_language_name(message: Message, state: FSMContext):
+    await state.update_data(new_name=message.text)
+    await message.answer("🔤 Введите новый код языка или <code>-</code> чтобы оставить без изменений:", parse_mode="HTML",
+        reply_markup=get_cancel_to_languages_kb())
+    await state.set_state(EditLanguageFSM.waiting_for_code)
+
+@router.message(EditLanguageFSM.waiting_for_code)
+async def admin_edit_language_code(message: Message, state: FSMContext):
+    data = await state.get_data()
+    language_id = data.get("language_id")
+    update_data = {}
+    if data.get("new_name") != "-":
+        update_data["name"] = data.get("new_name")
+    if message.text != "-":
+        update_data["code"] = message.text
+
+    if not update_data:
+        await message.answer("❗️ Нет изменений для сохранения.")
+        await state.clear()
+        return
+
+    from database.language import update_language
+    result = await update_language(language_id, update_data)
+    if result:
+        await message.answer("✅ Язык успешно обновлён!",
+        reply_markup=get_cancel_to_languages_kb())
+    else:
+        await message.answer("❌ Ошибка при обновлении языка.")
+    await state.clear()
+
+@router.callback_query(F.data.startswith("admin_delete_language_"))
+async def admin_delete_language(callback: CallbackQuery, state: FSMContext):
+    language_id = callback.data.split("_", 3)[3]
+    from database.language import delete_language
+    result = await delete_language(language_id)
+    if result:
+        await callback.message.edit_text("✅ Язык успешно удалён!", parse_mode="HTML",
+        reply_markup=get_cancel_to_languages_kb())
+    else:
+        await callback.message.edit_text("❌ Ошибка при удалении языка.", parse_mode="HTML")
     await callback.answer()

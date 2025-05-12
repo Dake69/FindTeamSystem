@@ -2,7 +2,19 @@ from database.db import db
 
 users_collection = db.users
 
-async def add_user(user_id, full_name, nickname, phone, games, username):
+async def add_user(
+    user_id,
+    full_name,
+    nickname,
+    age,
+    gender,
+    about,
+    phone,
+    games_with_ranks,
+    username,
+    language
+
+):
     existing = await users_collection.find_one({
         "$or": [
             {"user_id": user_id},
@@ -12,20 +24,23 @@ async def add_user(user_id, full_name, nickname, phone, games, username):
     })
     if existing:
         return {"success": False, "reason": "Пользователь уже существует"}
-    
-    if not isinstance(games, list):
-        games = [games]
 
     user_data = {
         "user_id": user_id,
         "full_name": full_name,
         "nickname": nickname,
+        "age": age,
+        "gender": gender,
+        "about": about,
         "phone": phone,
-        "games": games,
-        "username": username
+        "games": games_with_ranks,
+        "username": username,
+        "language": language
+
     }
     await users_collection.insert_one(user_data)
     return {"success": True}
+
 
 async def get_user_by_id(user_id):
     user = await users_collection.find_one({"user_id": user_id})
