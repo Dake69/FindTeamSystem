@@ -6,6 +6,7 @@ from FSM.all import *
 
 from database.filtrs import *
 from database.users import *
+from database.games import get_all_games, get_game_by_name
 
 from keyboards.settings_keyboards import *
 

@@ -4,6 +4,7 @@ from bson import ObjectId
 games_collection = db.games
 genres_collection = db.genres
 
+
 async def add_game(game_name, genre=None, description=None, ranks=None):
     existing = await games_collection.find_one({"game_name": game_name})
     if existing:
@@ -21,15 +22,19 @@ async def add_game(game_name, genre=None, description=None, ranks=None):
     await games_collection.insert_one(game_data)
     return {"success": True}
 
+
 async def get_game_by_name(game_name):
     return await games_collection.find_one({"game_name": game_name})
+
 
 async def get_game_by_id(game_id):
     return await games_collection.find_one({"_id": game_id})
 
+
 async def get_all_games():
     cursor = games_collection.find({})
-    return [game async for game in cursor]
+    return await cursor.to_list(length=None)
+
 
 async def delete_game(game_id):
     print("Удаляем игру с id:", game_id)
@@ -37,6 +42,7 @@ async def delete_game(game_id):
         game_id = ObjectId(game_id)
     result = await games_collection.delete_one({"_id": game_id})
     return result.deleted_count > 0
+
 
 async def update_game(game_id, update_data):
     if not isinstance(game_id, ObjectId):

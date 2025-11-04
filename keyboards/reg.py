@@ -30,9 +30,10 @@ main_menu_kb = InlineKeyboardMarkup(
     inline_keyboard=[
         [
             InlineKeyboardButton(text="📰 Лента", callback_data="feed"),
-            InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile")
+            InlineKeyboardButton(text="🎯 Мои матчи", callback_data="my_matches")
         ],
         [
+            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
             InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
         ]
     ]

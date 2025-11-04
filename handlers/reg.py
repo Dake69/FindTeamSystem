@@ -16,7 +16,10 @@ from database.filtrs import *
 router = Router()
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
+async def start(message: Message, state: FSMContext):
+    # Показываем ID пользователя для настройки админки
+    print(f"[DEBUG] User {message.from_user.username} ID: {message.from_user.id}")
+    
     user = await get_user_by_id(message.from_user.id)
     if user:
         await message.answer(
@@ -77,12 +80,42 @@ async def get_gender(callback: CallbackQuery, state: FSMContext):
 @router.message(RegistrationInline.about, F.text)
 async def get_about(message: Message, state: FSMContext):
     await state.update_data(about=message.text)
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="skip_photo")]
+        ]
+    )
+    await message.answer(
+        "📸 Отправьте ваше <b>фото</b> (аватарку):\n\nИли нажмите 'Пропустить', чтобы продолжить без фото.",
+        reply_markup=skip_kb,
+        parse_mode="HTML"
+    )
+    await state.set_state(RegistrationInline.photo)
+
+@router.message(RegistrationInline.photo, F.photo)
+async def get_photo(message: Message, state: FSMContext):
+    photo = message.photo[-1]
+    await state.update_data(photo_id=photo.file_id)
     await message.answer(
         "📱 Пожалуйста, отправьте ваш <b>номер телефона</b>:",
         reply_markup=contact_kb,
         parse_mode="HTML"
     )
     await state.set_state(RegistrationInline.phone)
+
+@router.callback_query(RegistrationInline.photo, F.data == "skip_photo")
+async def skip_photo(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(photo_id=None)
+    await callback.message.edit_text(
+        "📱 Пожалуйста, отправьте ваш <b>номер телефона</b>:",
+        parse_mode="HTML"
+    )
+    await callback.message.answer(
+        "Нажмите кнопку ниже:",
+        reply_markup=contact_kb
+    )
+    await state.set_state(RegistrationInline.phone)
+    await callback.answer()
 
 @router.message(RegistrationInline.phone, F.contact)
 async def get_phone(message: Message, state: FSMContext):
@@ -215,6 +248,7 @@ async def select_language(callback: CallbackQuery, state: FSMContext):
         age=data.get('age'),
         gender=data.get('gender'),
         about=data.get('about'),
+        photo_id=data.get('photo_id'),
         phone=data.get('phone'),
         games_with_ranks=data.get('games_with_ranks'),
         username=callback.from_user.username,
@@ -254,9 +288,10 @@ async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
         )
     text = (
         "🏠 <b>Главное меню</b>\n\n"
-        "📰 <b>Лента</b> — просматривайте анкеты других пользователей и ищите тиммейтов по вашим фильтрам.\n\n"
-        "👤 <b>Личный кабинет</b> — управляйте своей анкетой, играми и личной информацией.\n\n"
-        "⚙️ <b>Настройки</b> — настройте фильтры поиска, параметры профиля и другие опции.\n\n"
+        "📰 <b>Лента</b> — смотрите анкеты других игроков и ставьте лайки\n\n"
+        "🎯 <b>Мои матчи</b> — просматривайте свои совпадения\n\n"
+        "👤 <b>Профиль</b> — управляйте своей анкетой\n\n"
+        "⚙️ <b>Настройки</b> — настройте фильтры поиска\n\n"
         "Выберите нужный раздел с помощью кнопок ниже 👇"
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb)
