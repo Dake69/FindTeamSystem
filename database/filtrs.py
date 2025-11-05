@@ -11,7 +11,8 @@ async def add_filter(user_id):
         "gender": "any",
         "age_min": None,
         "age_max": None,
-        "games_ranks": {}
+        "games_ranks": {},
+        "languages": []
     }
     result = await filters_collection.insert_one(filter_doc)
     return str(result.inserted_id)
@@ -45,7 +46,8 @@ async def reset_filter(user_id):
         "gender": "any",
         "age_min": None,
         "age_max": None,
-        "games_ranks": {}
+        "games_ranks": {},
+        "languages": []
     }
     result = await filters_collection.update_one(
         {"user_id": user_id},

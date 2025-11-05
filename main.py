@@ -11,6 +11,7 @@ from handlers.slider import router as slider_router
 from handlers.settings import router as settings_router
 from handlers.feed import router as feed_router
 from handlers.edit_profile import router as edit_profile_router
+from handlers.filter_languages import router as filter_languages_router
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -24,6 +25,7 @@ async def main():
     dp.include_router(feed_router)
     dp.include_router(slider_router)
     dp.include_router(edit_profile_router)
+    dp.include_router(filter_languages_router)
     dp.include_router(admin_router)
     dp.include_router(settings_router)
 

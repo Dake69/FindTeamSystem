@@ -14,14 +14,17 @@ async def add_user(
     phone,
     games_with_ranks,
     username,
-    language
+    languages
 ):
+    query_conditions = [
+        {"user_id": user_id},
+        {"nickname": nickname}
+    ]
+    if phone:
+        query_conditions.append({"phone": phone})
+    
     existing = await users_collection.find_one({
-        "$or": [
-            {"user_id": user_id},
-            {"phone": phone},
-            {"nickname": nickname}
-        ]
+        "$or": query_conditions
     })
     if existing:
         return {"success": False, "reason": "Пользователь уже существует"}
@@ -37,7 +40,7 @@ async def add_user(
         "phone": phone,
         "games": games_with_ranks,
         "username": username,
-        "language": language,
+        "languages": languages,
         "is_active": True
     }
     await users_collection.insert_one(user_data)

@@ -7,7 +7,6 @@ class RegistrationInline(StatesGroup):
     gender = State()
     about = State()
     photo = State()
-    phone = State()
     game = State()
     rank = State()
     language = State()
@@ -51,6 +50,7 @@ class FilterFSM(StatesGroup):
     ranks = State()     
     gender = State()      
     age = State()
+    languages = State()
 
 class EditProfileFSM(StatesGroup):
     edit_photo = State()

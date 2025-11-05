@@ -24,13 +24,22 @@ async def show_profile(callback: CallbackQuery, state: FSMContext):
     games_str = "\n".join([f"  🎮 <b>{game}</b>: <i>{rank}</i>" for game, rank in user.get("games", {}).items()])
     gender_text = "Мужской" if user.get("gender") == "male" else "Женский"
     
+    from database.language import get_language_by_id
+    languages = user.get("languages", [])
+    languages_names = []
+    for lang_id in languages:
+        lang = await get_language_by_id(lang_id)
+        if lang:
+            languages_names.append(lang.get("name"))
+    languages_str = ", ".join(languages_names) if languages_names else "Не указаны"
+    
     profile_text = (
         f"👤 <b>Ваш профиль</b>\n\n"
         f"📛 <b>Имя:</b> {user.get('full_name')}\n"
         f"🏷️ <b>Никнейм:</b> {user.get('nickname')}\n"
         f"🎂 <b>Возраст:</b> {user.get('age')}\n"
         f"🧑 <b>Пол:</b> {gender_text}\n"
-        f"📱 <b>Телефон:</b> {user.get('phone')}\n"
+        f"🌐 <b>Языки:</b> {languages_str}\n"
         f"📝 <b>О себе:</b>\n{user.get('about')}\n\n"
         f"<b>🎮 Ваши игры:</b>\n{games_str if games_str else '  Не указаны'}"
     )

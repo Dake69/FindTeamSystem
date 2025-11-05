@@ -95,37 +95,26 @@ async def get_about(message: Message, state: FSMContext):
 @router.message(RegistrationInline.photo, F.photo)
 async def get_photo(message: Message, state: FSMContext):
     photo = message.photo[-1]
-    await state.update_data(photo_id=photo.file_id)
-    await message.answer(
-        "📱 Пожалуйста, отправьте ваш <b>номер телефона</b>:",
-        reply_markup=contact_kb,
-        parse_mode="HTML"
-    )
-    await state.set_state(RegistrationInline.phone)
-
-@router.callback_query(RegistrationInline.photo, F.data == "skip_photo")
-async def skip_photo(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(photo_id=None)
-    await callback.message.edit_text(
-        "📱 Пожалуйста, отправьте ваш <b>номер телефона</b>:",
-        parse_mode="HTML"
-    )
-    await callback.message.answer(
-        "Нажмите кнопку ниже:",
-        reply_markup=contact_kb
-    )
-    await state.set_state(RegistrationInline.phone)
-    await callback.answer()
-
-@router.message(RegistrationInline.phone, F.contact)
-async def get_phone(message: Message, state: FSMContext):
-    await state.update_data(phone=message.contact.phone_number)
+    await state.update_data(photo_id=photo.file_id, phone=None)
     await message.answer(
         "🎮 Выберите одну или несколько игр (нажимайте по очереди):",
         reply_markup=await get_games_keyboard([]),
         parse_mode="HTML"
     )
     await state.set_state(RegistrationInline.game)
+
+@router.callback_query(RegistrationInline.photo, F.data == "skip_photo")
+async def skip_photo(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(photo_id=None, phone=None)
+    await callback.message.edit_text(
+        "🎮 Выберите одну или несколько игр (нажимайте по очереди):",
+        reply_markup=await get_games_keyboard([]),
+        parse_mode="HTML"
+    )
+    await state.set_state(RegistrationInline.game)
+    await callback.answer()
+
+
 
 @router.callback_query(RegistrationInline.game, F.data)
 async def choose_games(callback: CallbackQuery, state: FSMContext):
@@ -221,26 +210,53 @@ async def select_game_rank(callback: CallbackQuery, state: FSMContext):
     else:
         await state.set_state(RegistrationInline.language)
         await callback.message.edit_text(
-            "🌐 Выберите ваш <b>язык</b> общения:",
-            reply_markup=await get_languages_keyboard(),
+            "🌐 Выберите <b>языки</b> общения (можно несколько):",
+            reply_markup=await get_languages_keyboard([]),
             parse_mode="HTML"
         )
     await callback.answer()
 
-async def get_languages_keyboard():
+async def get_languages_keyboard(selected_languages=[]):
     langs = await get_all_languages()
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=lang["name"], callback_data=f"lang_{lang['_id']}")]
-            for lang in langs
-        ]
-    )
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"{'✅' if str(lang['_id']) in selected_languages else ''} {lang['name']}",
+            callback_data=f"lang_{lang['_id']}"
+        )]
+        for lang in langs
+    ]
+    buttons.append([InlineKeyboardButton(text="🎯 Готово", callback_data="languages_done")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @router.callback_query(RegistrationInline.language, F.data.startswith("lang_"))
 async def select_language(callback: CallbackQuery, state: FSMContext):
     language_id = callback.data.split("_", 1)[1]
-    await state.update_data(language=language_id)
     data = await state.get_data()
+    selected_languages = data.get('languages', [])
+    
+    if language_id in selected_languages:
+        selected_languages.remove(language_id)
+    else:
+        selected_languages.append(language_id)
+    
+    await state.update_data(languages=selected_languages)
+    
+    await callback.message.edit_text(
+        "🌐 Выберите <b>языки</b> общения (можно несколько):",
+        reply_markup=await get_languages_keyboard(selected_languages),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(RegistrationInline.language, F.data == "languages_done")
+async def finish_language_selection(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_languages = data.get('languages', [])
+    
+    if not selected_languages:
+        await callback.answer("Выберите хотя бы один язык!", show_alert=True)
+        return
+    
     result = await add_user(
         user_id=callback.from_user.id,
         full_name=data.get('full_name'),
@@ -249,10 +265,10 @@ async def select_language(callback: CallbackQuery, state: FSMContext):
         gender=data.get('gender'),
         about=data.get('about'),
         photo_id=data.get('photo_id'),
-        phone=data.get('phone'),
+        phone=None,
         games_with_ranks=data.get('games_with_ranks'),
         username=callback.from_user.username,
-        language=language_id
+        languages=selected_languages
     )
     if result.get("success"):
         games_str = "\n".join(
@@ -264,7 +280,6 @@ async def select_language(callback: CallbackQuery, state: FSMContext):
             f"🏷️ <b>Никнейм:</b> {data.get('nickname')}\n"
             f"🎂 <b>Возраст:</b> {data.get('age')}\n"
             f"🧑 <b>Пол:</b> {'Мужской' if data.get('gender') == 'male' else 'Женский'}\n"
-            f"📱 <b>Телефон:</b> {data.get('phone')}\n"
             f"{games_str}\n"
             f"📝 <b>О себе:</b> {data.get('about')}",
             parse_mode="HTML",
@@ -294,5 +309,12 @@ async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
         "⚙️ <b>Настройки</b> — настройте фильтры поиска\n\n"
         "Выберите нужный раздел с помощью кнопок ниже 👇"
     )
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb)
+    
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb)
+    except:
+        # Если не можем отредактировать (например, сообщение с фото), отправляем новое
+        await callback.message.delete()
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb)
+    
     await callback.answer()

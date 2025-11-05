@@ -37,6 +37,7 @@ async def settings_filters_menu(callback: CallbackQuery, state: FSMContext):
 
         gender = user_filter.get("gender", "any")
         age = user_filter.get("age", "any")
+        languages = user_filter.get("languages", [])
 
         games_str = "Не выбрано" if not games else ", ".join(games)
         gender_str = (
@@ -45,11 +46,20 @@ async def settings_filters_menu(callback: CallbackQuery, state: FSMContext):
             "Женский" if gender == "female" else gender
         )
         age_str = "Любой" if age == "any" else str(age)
+        
+        from database.language import get_language_by_id
+        languages_names = []
+        for lang_id in languages:
+            lang = await get_language_by_id(lang_id)
+            if lang:
+                languages_names.append(lang.get("name"))
+        languages_str = "Не выбрано" if not languages_names else ", ".join(languages_names)
 
         text += (
             f"🎮 <b>Игры:</b> {games_str}\n"
             f"🧑 <b>Пол:</b> {gender_str}\n"
             f"🎂 <b>Возраст:</b> {age_str}\n"
+            f"🌐 <b>Языки:</b> {languages_str}\n"
         )
     else:
         text += "Фильтр не установлен (используются все параметры по умолчанию).\n"
@@ -76,6 +86,7 @@ async def edit_filter_menu(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🎮 Игры", callback_data="edit_filter_games")],
             [InlineKeyboardButton(text="🧑 Пол", callback_data="edit_filter_gender")],
             [InlineKeyboardButton(text="🎂 Возраст", callback_data="edit_filter_age")],
+            [InlineKeyboardButton(text="🌐 Языки", callback_data="edit_filter_languages")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_filters")]
         ]
     )
