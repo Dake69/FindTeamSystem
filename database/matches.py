@@ -39,6 +39,13 @@ async def get_user_matches(user_id, skip=0, limit=50):
     return await cursor.to_list(length=limit)
 
 
+async def get_incoming_likes(user_id, skip=0, limit=100):
+    """Возвращает список матчей где другие пользователи поставили лайк пользователю (pending incoming likes)."""
+    query = {"user_id_2": user_id, "status": "pending"}
+    cursor = matches_collection.find(query).skip(skip).limit(limit)
+    return await cursor.to_list(length=limit)
+
+
 async def accept_match(match_id):
     result = await matches_collection.update_one(
         {"_id": match_id},

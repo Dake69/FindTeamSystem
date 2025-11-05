@@ -4,8 +4,9 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from database.users import get_user_by_id, get_all_active_users
-from database.matches import create_match, get_user_matches
+from database.matches import create_match, get_user_matches, get_incoming_likes, matches_collection
 from database.filtrs import get_filter_by_user
+from database.user_settings import get_settings_by_user, ensure_settings
 
 router = Router()
 
@@ -43,6 +44,52 @@ async def format_user_card(user):
 async def get_next_candidate(current_user_id, user_filter):
     all_users = await get_all_active_users(limit=100)
     user_matches = await get_user_matches(current_user_id)
+
+    # 1) Prioritize users who already liked current_user (incoming pending likes)
+    try:
+        incoming = await get_incoming_likes(current_user_id)
+    except Exception:
+        incoming = []
+    for match in incoming:
+        candidate_id = match.get("user_id_1")
+        # skip if candidate is in viewed or is current user
+        if not candidate_id or candidate_id == current_user_id:
+            continue
+        # load candidate and check filters
+        candidate = await get_user_by_id(candidate_id)
+        if not candidate:
+            continue
+        viewed_ids = {current_user_id}
+        for m in user_matches:
+            if m.get("user_id_1") == current_user_id:
+                if m.get("status") in ["pending", "skipped", "accepted"]:
+                    viewed_ids.add(m.get("user_id_2"))
+        if candidate.get("user_id") in viewed_ids:
+            continue
+
+        if user_filter:
+            filter_games = user_filter.get("games", [])
+            if filter_games:
+                candidate_games = set(candidate.get("games", {}).keys())
+                if not any(g in candidate_games for g in filter_games):
+                    continue
+            filter_gender = user_filter.get("gender", "any")
+            if filter_gender != "any" and candidate.get("gender") != filter_gender:
+                continue
+            age_min = user_filter.get("age_min")
+            age_max = user_filter.get("age_max")
+            candidate_age = candidate.get("age")
+            if age_min and candidate_age < age_min:
+                continue
+            if age_max and candidate_age > age_max:
+                continue
+            filter_languages = user_filter.get("languages", [])
+            if filter_languages:
+                candidate_languages = candidate.get("languages", [])
+                if not any(lang in candidate_languages for lang in filter_languages):
+                    continue
+
+        return candidate
     
     viewed_ids = {current_user_id}
     for match in user_matches:
@@ -224,7 +271,7 @@ async def swipe_right(callback: CallbackQuery, state: FSMContext):
     game_name = list(common_games)[0] if common_games else "общие интересы"
     
     # Проверяем, есть ли уже лайк от кандидата к текущему пользователю
-    from database.matches import matches_collection
+    # matches_collection imported at module top
     existing_like = await matches_collection.find_one({
         "user_id_1": candidate_id,
         "user_id_2": callback.from_user.id,
@@ -237,12 +284,65 @@ async def swipe_right(callback: CallbackQuery, state: FSMContext):
             {"_id": existing_like["_id"]},
             {"$set": {"status": "accepted", "matched_at": datetime.now()}}
         )
+        # Notify both users about match according to their settings
+        try:
+            # candidate (user_id_1) liked current user earlier; now it's a match
+            settings_candidate = await get_settings_by_user(candidate_id)
+            settings_user = await get_settings_by_user(callback.from_user.id)
+
+            # message texts
+            nick_user = user.get("nickname") or callback.from_user.username or str(callback.from_user.id)
+            nick_candidate = candidate.get("nickname") or candidate.get("username") or str(candidate_id)
+
+            # notify candidate (who liked first)
+            if settings_candidate and settings_candidate.get("notify_on_match"):
+                try:
+                    await callback.bot.send_message(
+                        chat_id=candidate_id,
+                        text=f"🎉 Это матч!
+Вы и {nick_user} понравились друг другу!",
+                        disable_notification=not settings_candidate.get("notify_sound", True)
+                    )
+                except Exception:
+                    pass
+
+            # notify current user (who swiped back)
+            if settings_user and settings_user.get("notify_on_match"):
+                try:
+                    await callback.bot.send_message(
+                        chat_id=callback.from_user.id,
+                        text=f"🎉 Это матч!
+Вы и {nick_candidate} понравились друг другу!",
+                        disable_notification=not settings_user.get("notify_sound", True)
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
         await callback.answer("🎉 Это матч! Вы понравились друг другу!", show_alert=True)
     else:
         # Создаём новый лайк от текущего пользователя
         match = await create_match(callback.from_user.id, candidate_id, game_name)
         if match:
             await callback.answer("✅ Лайк отправлен!", show_alert=False)
+            # Notify recipient about new like according to their settings
+            try:
+                settings_recipient = await get_settings_by_user(candidate_id)
+                if settings_recipient and settings_recipient.get("notify_on_like"):
+                    liker_name = user.get("nickname") or callback.from_user.username or str(callback.from_user.id)
+                    try:
+                        await callback.bot.send_message(
+                            chat_id=candidate_id,
+                            text=f"💚 {liker_name} поставил(а) вам лайк!",
+                            disable_notification=not settings_recipient.get("notify_sound", True),
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="📰 Открыть ленту", callback_data="feed")]
+                            ])
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         else:
             await callback.answer("⚠️ Вы уже взаимодействовали с этим пользователем", show_alert=True)
     

@@ -57,3 +57,5 @@ class EditProfileFSM(StatesGroup):
     edit_fullname = State()
     edit_nickname = State()
     edit_about = State()
+    edit_games = State()
+    edit_rank = State()

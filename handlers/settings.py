@@ -9,6 +9,8 @@ from database.users import *
 from database.games import get_all_games, get_game_by_name
 
 from keyboards.settings_keyboards import *
+from database.user_settings import ensure_settings, get_settings_by_user, update_settings
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 router = Router()
 
@@ -74,6 +76,50 @@ async def settings_filters_menu(callback: CallbackQuery, state: FSMContext):
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
     await callback.answer()
+
+
+@router.callback_query(F.data == "settings_notifications")
+async def settings_notifications_menu(callback: CallbackQuery, state: FSMContext):
+    # Ensure settings exist for user
+    settings = await ensure_settings(callback.from_user.id)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=("✅ " if settings.get("notify_on_like") else "") + "Уведомления о лайках", callback_data="toggle_notify_like")],
+        [InlineKeyboardButton(text=("✅ " if settings.get("notify_on_match") else "") + "Уведомления о матчах", callback_data="toggle_notify_match")],
+        [InlineKeyboardButton(text=("✅ " if settings.get("notify_sound") else "") + "Звук уведомлений", callback_data="toggle_notify_sound")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings")]
+    ])
+
+    await callback.message.edit_text(
+        "🔔 <b>Настройки уведомлений</b>\n\nВыберите, какие уведомления вы хотите получать:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "toggle_notify_like")
+async def toggle_notify_like(callback: CallbackQuery, state: FSMContext):
+    settings = await ensure_settings(callback.from_user.id)
+    new_val = not bool(settings.get("notify_on_like"))
+    await update_settings(callback.from_user.id, {"notify_on_like": new_val})
+    await settings_notifications_menu(callback, state)
+
+
+@router.callback_query(F.data == "toggle_notify_match")
+async def toggle_notify_match(callback: CallbackQuery, state: FSMContext):
+    settings = await ensure_settings(callback.from_user.id)
+    new_val = not bool(settings.get("notify_on_match"))
+    await update_settings(callback.from_user.id, {"notify_on_match": new_val})
+    await settings_notifications_menu(callback, state)
+
+
+@router.callback_query(F.data == "toggle_notify_sound")
+async def toggle_notify_sound(callback: CallbackQuery, state: FSMContext):
+    settings = await ensure_settings(callback.from_user.id)
+    new_val = not bool(settings.get("notify_sound"))
+    await update_settings(callback.from_user.id, {"notify_sound": new_val})
+    await settings_notifications_menu(callback, state)
 
 @router.callback_query(F.data == "edit_filter")
 async def edit_filter_menu(callback: CallbackQuery, state: FSMContext):
