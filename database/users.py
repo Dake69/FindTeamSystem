@@ -77,4 +77,4 @@ async def update_user(user_id, update_data):
         {"user_id": user_id},
         {"$set": update_data}
     )
-    return result.modified_count > 0
+    return result.matched_count > 0

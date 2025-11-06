@@ -6,6 +6,7 @@ admin_panel_kb = InlineKeyboardMarkup(
         [InlineKeyboardButton(text="🕹 Управление играми", callback_data="admin_games")],
         [InlineKeyboardButton(text="🌐 Управление языками", callback_data="admin_languages")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="👥 Управление пользователями", callback_data="admin_users")],
     ]
 )
 
@@ -68,3 +69,21 @@ def get_language_manage_kb(language_id):
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_show_languages")]
         ]
     )
+
+
+def get_user_manage_kb(user_id, is_active=True, is_banned=False):
+    buttons = []
+    if is_banned:
+        buttons.append([InlineKeyboardButton(text="♻️ Разбанить", callback_data=f"admin_unban_{user_id}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="❌ Забанить", callback_data=f"admin_ban_{user_id}")])
+
+    if is_active:
+        buttons.append([InlineKeyboardButton(text="🔕 Сделать неактивным", callback_data=f"admin_toggle_active_{user_id}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="🔔 Сделать активным", callback_data=f"admin_toggle_active_{user_id}")])
+
+    buttons.append([InlineKeyboardButton(text="✉️ Отправить предупреждение", callback_data=f"admin_warn_{user_id}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

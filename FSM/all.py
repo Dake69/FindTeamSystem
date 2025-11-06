@@ -59,3 +59,7 @@ class EditProfileFSM(StatesGroup):
     edit_about = State()
     edit_games = State()
     edit_rank = State()
+
+
+class AdminWarnFSM(StatesGroup):
+    waiting_for_text = State()

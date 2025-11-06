@@ -4,27 +4,32 @@ from datetime import datetime
 matches_collection = db.matches
 
 
-async def create_match(user_id_1, user_id_2, game_name):
+async def create_match(user_id_1, user_id_2, game_name=None, status="pending"):
+    """
+    Создаёт запись взаимодействия между пользователями.
+    - `game_name` может быть None (например при пропуске)
+    - `status` по умолчанию "pending" для лайка, "skipped" для пропуска.
+    Возвращает вставленный документ или None, если уже есть запись между этими пользователями.
+    """
     existing = await matches_collection.find_one({
         "$or": [
             {"user_id_1": user_id_1, "user_id_2": user_id_2},
             {"user_id_1": user_id_2, "user_id_2": user_id_1}
-        ],
-        "status": "pending"
+        ]
     })
-    
+
     if existing:
         return None
-    
+
     match_data = {
         "user_id_1": user_id_1,
         "user_id_2": user_id_2,
         "game_name": game_name,
-        "status": "pending",
+        "status": status,
         "created_at": datetime.utcnow(),
         "matched_at": None
     }
-    
+
     result = await matches_collection.insert_one(match_data)
     return await matches_collection.find_one({"_id": result.inserted_id})
 
@@ -69,3 +74,9 @@ async def get_accepted_matches(user_id):
     }
     cursor = matches_collection.find(query)
     return await cursor.to_list(length=None)
+
+
+async def clear_all_matches():
+    """Удаляет все документы из коллекции matches (ежедневная очистка)."""
+    result = await matches_collection.delete_many({})
+    return result.deleted_count

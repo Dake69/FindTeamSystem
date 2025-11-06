@@ -642,3 +642,135 @@ async def admin_delete_language(callback: CallbackQuery, state: FSMContext):
     else:
         await callback.message.edit_text("❌ Ошибка при удалении языка.", parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin_users")
+async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
+    users = await get_all_active_users()
+    if not users:
+        await callback.message.edit_text("❗️ Нет активных пользователей.", parse_mode="HTML",
+                                         reply_markup=admin_panel_kb)
+        await callback.answer()
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"{u.get('nickname') or u.get('full_name')} ({u.get('user_id')})",
+                                  callback_data=f"admin_user_{u.get('user_id')}")]
+            for u in users
+        ] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]]
+    )
+
+    await callback.message.edit_text(
+        "👥 <b>Активные пользователи</b>:\n\nНажмите на пользователя для управления.",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_user_"))
+async def admin_user_detail(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.data.split("_", 2)[2]
+    try:
+        uid = int(user_id)
+    except Exception:
+        uid = user_id
+    user = await get_user_by_id(uid)
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+
+    games = user.get('games', {})
+    games_text = ', '.join(games.keys()) if games else '—'
+    text = (
+        f"👤 <b>{user.get('full_name', '—')}</b>\n"
+        f"🆔 <b>ID:</b> {user.get('user_id')}\n"
+        f"🔹 <b>Ник:</b> {user.get('nickname', '—')}\n"
+        f"🔹 <b>Username:</b> @{user.get('username') if user.get('username') else '—'}\n"
+        f"🎮 <b>Игры:</b> {games_text}\n"
+        f"🌐 <b>Языки:</b> {', '.join(user.get('languages', [])) or '—'}\n"
+        f"⚪️ <b>Активен:</b> {user.get('is_active', True)}\n"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=get_user_manage_kb(user.get('user_id'), user.get('is_active', True), user.get('is_banned', False))
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_ban_"))
+async def admin_ban_user(callback: CallbackQuery):
+    user_id = callback.data.split("_", 2)[2]
+    try:
+        uid = int(user_id)
+    except Exception:
+        uid = user_id
+    await update_user(uid, {"is_active": False, "is_banned": True})
+    try:
+        await callback.bot.send_message(uid, "⛔️ Вы были забанены администратором.")
+    except Exception:
+        pass
+    await callback.message.edit_text("✅ Пользователь успешно забанен.", reply_markup=admin_panel_kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_unban_"))
+async def admin_unban_user(callback: CallbackQuery):
+    user_id = callback.data.split("_", 2)[2]
+    try:
+        uid = int(user_id)
+    except Exception:
+        uid = user_id
+    await update_user(uid, {"is_active": True, "is_banned": False})
+    try:
+        await callback.bot.send_message(uid, "✅ Вам снят бан. Вы снова в системе.")
+    except Exception:
+        pass
+    await callback.message.edit_text("✅ Пользователь разбанен.", reply_markup=admin_panel_kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_toggle_active_"))
+async def admin_toggle_active(callback: CallbackQuery):
+    user_id = callback.data.split("_", 3)[3] if callback.data.count("_") >= 3 else callback.data.split("_",2)[2]
+    try:
+        uid = int(user_id)
+    except Exception:
+        uid = user_id
+    user = await get_user_by_id(uid)
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+    new_active = not user.get('is_active', True)
+    await update_user(uid, {"is_active": new_active})
+    await callback.message.edit_text(f"✅ Статус активности изменён: {new_active}", reply_markup=admin_panel_kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_warn_"))
+async def admin_warn_start(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.data.split("_", 2)[2]
+    await state.update_data(target_user=user_id)
+    await callback.message.edit_text("✉️ Отправьте текст предупреждения для пользователя:")
+    await state.set_state(AdminWarnFSM.waiting_for_text)
+    await callback.answer()
+
+
+@router.message(AdminWarnFSM.waiting_for_text)
+async def admin_send_warning(message: Message, state: FSMContext):
+    data = await state.get_data()
+    target = data.get('target_user')
+    try:
+        uid = int(target)
+    except Exception:
+        uid = target
+    text = message.text
+    try:
+        await message.bot.send_message(uid, f"⚠️ Сообщение от администрации:\n\n{text}")
+        await message.answer("✅ Сообщение отправлено пользователю.")
+    except Exception:
+        await message.answer("❌ Не удалось отправить сообщение (пользователь заблокировал бота или ошибка).")
+    await state.clear()

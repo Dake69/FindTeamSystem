@@ -9,7 +9,6 @@ async def add_settings(user_id):
         return existing
     doc = {
         "user_id": user_id,
-        # default notification settings
         "notify_on_like": True,
         "notify_on_match": True,
         "notify_sound": True

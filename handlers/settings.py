@@ -80,12 +80,11 @@ async def settings_filters_menu(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "settings_notifications")
 async def settings_notifications_menu(callback: CallbackQuery, state: FSMContext):
-    # Ensure settings exist for user
     settings = await ensure_settings(callback.from_user.id)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=("✅ " if settings.get("notify_on_like") else "") + "Уведомления о лайках", callback_data="toggle_notify_like")],
-        [InlineKeyboardButton(text=("✅ " if settings.get("notify_on_match") else "") + "Уведомления о матчах", callback_data="toggle_notify_match")],
+        [InlineKeyboardButton(text=("✅ " if settings.get("notify_on_match") else "") + "Уведомления о метчах", callback_data="toggle_notify_match")],
         [InlineKeyboardButton(text=("✅ " if settings.get("notify_sound") else "") + "Звук уведомлений", callback_data="toggle_notify_sound")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings")]
     ])
@@ -137,6 +136,37 @@ async def edit_filter_menu(callback: CallbackQuery, state: FSMContext):
         ]
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "settings_statistics")
+async def settings_statistics_menu(callback: CallbackQuery, state: FSMContext):
+    from database.matches import matches_collection
+    from database.users import users_collection
+
+    total_users = await users_collection.count_documents({})
+    active_users = await users_collection.count_documents({"is_active": True})
+    total_matches = await matches_collection.count_documents({})
+    accepted = await matches_collection.count_documents({"status": "accepted"})
+    pending = await matches_collection.count_documents({"status": "pending"})
+    skipped = await matches_collection.count_documents({"status": "skipped"})
+
+    text = (
+        "📈 <b>Статистика</b>\n\n"
+        f"👥 Всего пользователей: <b>{total_users}</b>\n"
+        f"🟢 Активных пользователей: <b>{active_users}</b>\n"
+        f"💞 Всего взаимодействий в matches: <b>{total_matches}</b>\n"
+        f"💚 Лайки (pending): <b>{pending}</b>\n"
+        f"🎯 Взаимные метчи (accepted): <b>{accepted}</b>\n"
+        f"👎 Пропуски (skipped): <b>{skipped}</b>\n\n"
+        "Очистка таблицы `matches` выполняется раз в сутки."
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings")]
+    ])
+
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 

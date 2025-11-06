@@ -52,9 +52,6 @@ async def update_game(game_id, update_data):
         {"$set": update_data}
     )
     return result.modified_count > 0
-
-#---------------------------------------------------------------------------------------------------
-
 async def add_genre(name, description=None):
     existing = await genres_collection.find_one({"name": name})
     if existing:

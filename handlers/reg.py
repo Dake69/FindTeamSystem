@@ -17,7 +17,6 @@ router = Router()
 
 @router.message(Command("start"))
 async def start(message: Message, state: FSMContext):
-    # Показываем ID пользователя для настройки админки
     print(f"[DEBUG] User {message.from_user.username} ID: {message.from_user.id}")
     
     user = await get_user_by_id(message.from_user.id)
@@ -304,7 +303,7 @@ async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
     text = (
         "🏠 <b>Главное меню</b>\n\n"
         "📰 <b>Лента</b> — смотрите анкеты других игроков и ставьте лайки\n\n"
-        "🎯 <b>Мои матчи</b> — просматривайте свои совпадения\n\n"
+        "🎯 <b>Мои метчи</b> — просматривайте свои совпадения\n\n"
         "👤 <b>Профиль</b> — управляйте своей анкетой\n\n"
         "⚙️ <b>Настройки</b> — настройте фильтры поиска\n\n"
         "Выберите нужный раздел с помощью кнопок ниже 👇"
@@ -313,7 +312,6 @@ async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb)
     except:
-        # Если не можем отредактировать (например, сообщение с фото), отправляем новое
         await callback.message.delete()
         await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb)
     

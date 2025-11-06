@@ -45,7 +45,7 @@ async def save_new_photo(message: Message, state: FSMContext):
         {"$set": {"photo_id": photo.file_id}}
     )
     
-    if result.modified_count > 0:
+    if result.matched_count > 0:
         await message.answer(
             "✅ Фото успешно обновлено!",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -65,7 +65,7 @@ async def delete_photo(callback: CallbackQuery, state: FSMContext):
         {"$set": {"photo_id": None}}
     )
     
-    if result.modified_count > 0:
+    if result.matched_count > 0:
         await callback.message.edit_text(
             "✅ Фото удалено из профиля!",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -126,7 +126,7 @@ async def edit_games_toggle(callback: CallbackQuery, state: FSMContext):
             return
         await state.update_data(games_with_ranks={})
         await state.set_state(EditProfileFSM.edit_rank)
-        # start asking ranks for first game
+        
         await ask_edit_game_rank(callback, state, 0)
         return
 
@@ -137,7 +137,7 @@ async def ask_edit_game_rank(callback, state: FSMContext, game_idx: int):
     data = await state.get_data()
     games = data.get("games", [])
     if game_idx >= len(games):
-        # finished selecting ranks
+        
         await callback.message.edit_text("✅ Выбор игр завершён. Сохраняем...", parse_mode="HTML")
         return
 
@@ -168,7 +168,6 @@ async def ask_edit_game_rank(callback, state: FSMContext, game_idx: int):
 
 @router.callback_query(EditProfileFSM.edit_rank, F.data.startswith("edit_rank_"))
 async def edit_rank_selected(callback: CallbackQuery, state: FSMContext):
-    # callback.data format: edit_rank_{game_idx}_{rank}
     payload = callback.data[len("edit_rank_"):]
     parts = payload.split("_", 1)
     if len(parts) < 2:
@@ -193,11 +192,10 @@ async def edit_rank_selected(callback: CallbackQuery, state: FSMContext):
     games_with_ranks[game_name] = rank
     await state.update_data(games_with_ranks=games_with_ranks)
 
-    # move to next game or finish
     if game_idx + 1 < len(games):
         await ask_edit_game_rank(callback, state, game_idx + 1)
     else:
-        # save to DB
+        
         ok = await update_user(callback.from_user.id, {"games": games_with_ranks})
         if ok:
             await callback.message.edit_text("✅ Игры успешно обновлены!", parse_mode="HTML",
@@ -210,7 +208,6 @@ async def edit_rank_selected(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# --- New handlers: edit fullname, nickname and about ---
 @router.callback_query(F.data == "edit_fullname")
 async def edit_fullname_start(callback: CallbackQuery, state: FSMContext):
     try:
