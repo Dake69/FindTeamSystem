@@ -4,10 +4,35 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardBut
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from database.users import get_user_by_id, get_all_active_users
+from database.users import get_user_by_id, get_all_active_users, update_user
 from database.matches import create_match, get_user_matches, get_incoming_likes, matches_collection
 from database.filtrs import get_filter_by_user
 from database.user_settings import get_settings_by_user, ensure_settings
+from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+import logging
+
+async def safe_send_photo(bot: Bot, chat_id, photo_id, caption, parse_mode="HTML", reply_markup=None, db_user_id=None):
+    try:
+        await bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode=parse_mode, reply_markup=reply_markup)
+    except Exception as e:
+        logging.exception("Failed to send photo, falling back to text message: %s", e)
+        # Only clear photo_id when the error explicitly indicates an invalid file identifier or URL
+        err_msg = str(e).lower()
+        should_clear = False
+        if db_user_id and ("wrong file identifier" in err_msg or "http url specified" in err_msg or "file identifier" in err_msg):
+            should_clear = True
+
+        if should_clear:
+            try:
+                await update_user(db_user_id, {"photo_id": None})
+                logging.info("Cleared photo_id for user %s due to invalid file identifier", db_user_id)
+            except Exception:
+                logging.exception("Failed to clear photo_id for user %s", db_user_id)
+        try:
+            await bot.send_message(chat_id=chat_id, text=caption, parse_mode=parse_mode, reply_markup=reply_markup)
+        except Exception:
+            logging.exception("Also failed to send fallback text message when photo failed")
 
 router = Router()
 
@@ -47,16 +72,30 @@ async def get_next_candidate(current_user_id, user_filter):
     user_matches = await get_user_matches(current_user_id)
     viewed_ids = {current_user_id}
     for match in user_matches:
-        if match.get("status") == "accepted":
+        status = match.get("status")
+        if status == "accepted":
             if match.get("user_id_1") == current_user_id:
                 viewed_ids.add(match.get("user_id_2"))
             else:
                 viewed_ids.add(match.get("user_id_1"))
             continue
 
-        if match.get("user_id_1") == current_user_id:
-            if match.get("status") in ["pending", "skipped"]:
-                viewed_ids.add(match.get("user_id_2"))
+        # If skip was marked to exclude both, exclude both users
+        if status == "skipped" and match.get("exclude_both"):
+            other = match.get("user_id_2") if match.get("user_id_1") == current_user_id else match.get("user_id_1")
+            viewed_ids.add(match.get("user_id_1"))
+            if other:
+                viewed_ids.add(other)
+            continue
+
+        # Exclude skipped only if the current user is the one who skipped (outgoing skip)
+        if status == "skipped" and match.get("user_id_1") == current_user_id:
+            viewed_ids.add(match.get("user_id_2"))
+            continue
+
+        # Exclude outgoing pending (users the current user already liked)
+        if status == "pending" and match.get("user_id_1") == current_user_id:
+            viewed_ids.add(match.get("user_id_2"))
 
     try:
         incoming = await get_incoming_likes(current_user_id)
@@ -195,13 +234,7 @@ async def show_feed(callback: CallbackQuery, state: FSMContext):
     photo_id = candidate.get("photo_id")
     if photo_id:
         await callback.message.delete()
-        await callback.bot.send_photo(
-            chat_id=callback.from_user.id,
-            photo=photo_id,
-            caption=card_text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+        await safe_send_photo(callback.bot, callback.from_user.id, photo_id, card_text, "HTML", keyboard, candidate.get("user_id"))
     else:
         await callback.message.edit_text(card_text, parse_mode="HTML", reply_markup=keyboard)
 
@@ -226,11 +259,29 @@ async def swipe_left(callback: CallbackQuery, state: FSMContext):
 
         if existing:
             if existing.get("status") == "pending" and existing.get("user_id_1") == candidate_id:
-                await matches_collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "skipped"}})
+                # Current user is skipping an incoming pending like.
+                # Normalize the record to be an outgoing skip from the current user
+                try:
+                    # Mark skipped and exclude both users from future feeds for this pair
+                    await matches_collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "skipped", "user_id_1": callback.from_user.id, "user_id_2": candidate_id, "exclude_both": True}})
+                except Exception:
+                    # Fallback: if updating direction fails, at least mark as skipped
+                    await matches_collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "skipped"}})
             else:
                 pass
         else:
             await create_match(callback.from_user.id, candidate_id, game_name=None, status="skipped")
+
+        try:
+            docs = await matches_collection.find({
+                "$or": [
+                    {"user_id_1": callback.from_user.id, "user_id_2": candidate_id},
+                    {"user_id_1": candidate_id, "user_id_2": callback.from_user.id}
+                ]
+            }).to_list(length=10)
+            logging.debug("Matches between %s and %s after swipe_left: %s", callback.from_user.id, candidate_id, docs)
+        except Exception:
+            logging.exception("Failed to fetch matches for debug after swipe_left")
 
     await callback.answer()
 
@@ -274,13 +325,7 @@ async def swipe_left(callback: CallbackQuery, state: FSMContext):
 
     photo_id = candidate.get("photo_id")
     if photo_id:
-        await callback.bot.send_photo(
-            chat_id=callback.from_user.id,
-            photo=photo_id,
-            caption=card_text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+        await safe_send_photo(callback.bot, callback.from_user.id, photo_id, card_text, "HTML", keyboard, candidate.get("user_id"))
     else:
         await callback.message.answer(card_text, parse_mode="HTML", reply_markup=keyboard)
 
@@ -348,6 +393,16 @@ async def swipe_right(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
         await callback.answer("🎉 Это метч! Вы понравились друг другу!", show_alert=True)
+        try:
+            docs = await matches_collection.find({
+                "$or": [
+                    {"user_id_1": callback.from_user.id, "user_id_2": candidate_id},
+                    {"user_id_1": candidate_id, "user_id_2": callback.from_user.id}
+                ]
+            }).to_list(length=10)
+            logging.debug("Matches between %s and %s after accept: %s", callback.from_user.id, candidate_id, docs)
+        except Exception:
+            logging.exception("Failed to fetch matches for debug after accept")
     else:
         match = await create_match(callback.from_user.id, candidate_id, game_name)
         if match:
@@ -374,6 +429,16 @@ async def swipe_right(callback: CallbackQuery, state: FSMContext):
                 pass
         else:
             await callback.answer("⚠️ Вы уже взаимодействовали с этим пользователем", show_alert=True)
+            try:
+                docs = await matches_collection.find({
+                    "$or": [
+                        {"user_id_1": callback.from_user.id, "user_id_2": candidate_id},
+                        {"user_id_1": candidate_id, "user_id_2": callback.from_user.id}
+                    ]
+                }).to_list(length=10)
+                logging.debug("Matches between %s and %s when create_match returned None: %s", callback.from_user.id, candidate_id, docs)
+            except Exception:
+                logging.exception("Failed to fetch matches for debug when create_match returned None")
 
     try:
         await callback.message.delete()
@@ -411,13 +476,7 @@ async def swipe_right(callback: CallbackQuery, state: FSMContext):
 
     photo_id = next_candidate.get("photo_id")
     if photo_id:
-        await callback.bot.send_photo(
-            chat_id=callback.from_user.id,
-            photo=photo_id,
-            caption=card_text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
+        await safe_send_photo(callback.bot, callback.from_user.id, photo_id, card_text, "HTML", keyboard, next_candidate.get("user_id"))
     else:
         await callback.message.answer(card_text, parse_mode="HTML", reply_markup=keyboard)
 
@@ -458,7 +517,12 @@ async def show_my_matches(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-    await callback.answer()
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except TelegramBadRequest as e:
+        msg = str(e)
+        if "message is not modified" in msg:
+            pass
+        else:
+            raise
     await callback.answer()

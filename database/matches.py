@@ -31,6 +31,7 @@ async def create_match(user_id_1, user_id_2, game_name=None, status="pending"):
         "user_id_2": user_id_2,
         "game_name": game_name,
         "status": status,
+        "exclude_both": False,
         "created_at": datetime.utcnow(),
         "matched_at": None
     }
