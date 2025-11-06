@@ -1,15 +1,24 @@
 import os
-from pathlib import Path
-from dotenv import load_dotenv
+import logging
 
-env_path = Path(__file__).parent / ".env"
-load_dotenv(env_path)
+logging.basicConfig(level=logging.INFO)
 
-with open(env_path, 'r', encoding='utf-8') as f:
-    lines = f.readlines()
-    TOKEN = lines[0].strip() if len(lines) > 0 else ""
-    MONGODB_URI = lines[1].strip() if len(lines) > 1 else ""
-    ADMIN_ID = int(lines[2].strip()) if len(lines) > 2 and lines[2].strip().isdigit() else None
+TOKEN = os.getenv("TOKEN")
+MONGODB_URI = os.getenv("MONGODB_URI")
+
+admin_id_raw = os.getenv("ADMIN_ID")
+ADMIN_ID = None
+if admin_id_raw:
+    try:
+        ADMIN_ID = int(admin_id_raw)
+    except Exception:
+        logging.error("Environment variable ADMIN_ID is set but is not a valid integer: %r", admin_id_raw)
+
+if not TOKEN:
+    logging.error("Environment variable TOKEN is not set. The bot will not be able to start without it.")
+
+if not MONGODB_URI:
+    logging.error("Environment variable MONGODB_URI is not set. Database connection will fail without it.")
 
 ADMIN_IDS = [ADMIN_ID] if ADMIN_ID else []
-DATABASE_NAME = "find_team_system"
+DATABASE_NAME = os.getenv("DATABASE_NAME", "find_team_system")
