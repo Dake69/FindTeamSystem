@@ -19,7 +19,12 @@ async def create_match(user_id_1, user_id_2, game_name=None, status="pending"):
     })
 
     if existing:
-        return None
+        # If the only existing interaction was a skip, allow creating a new interaction
+        # by removing the skipped record and proceeding to insert the new one.
+        if existing.get("status") == "skipped":
+            await matches_collection.delete_one({"_id": existing.get("_id")})
+        else:
+            return None
 
     match_data = {
         "user_id_1": user_id_1,
