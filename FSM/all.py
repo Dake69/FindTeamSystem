@@ -2,6 +2,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 class RegistrationInline(StatesGroup):
     full_name = State()
+    wait_for_contact = State()
     nickname = State()
     age = State()
     gender = State()

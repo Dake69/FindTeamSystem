@@ -30,6 +30,20 @@ async def start(message: Message, state: FSMContext):
             reply_markup=main_menu_inline_kb
         )
         return
+    # REQUIRE: user must have a Telegram username or share contact before proceeding
+    if not message.from_user.username:
+        try:
+            await message.answer(
+                "⚠️ У вас не установлен @username в Telegram. Пожалуйста, установите username в настройках Telegram или поделитесь вашим контактом (телефоном) ниже, чтобы продолжить регистрацию.",
+                parse_mode="HTML",
+                reply_markup=contact_kb
+            )
+            await state.set_state(RegistrationInline.wait_for_contact)
+            return
+        except Exception:
+            # If sending contact_kb fails, fall back to original prompt
+            pass
+
     await message.answer(
         "👋 <b>Добро пожаловать в FindTeamBot!</b>\n\n"
         "📝 Для поиска тиммейтов заполните анкету.\n"
@@ -43,6 +57,25 @@ async def get_full_name(message: Message, state: FSMContext):
     await state.update_data(full_name=message.text)
     await message.answer("📝 Введите ваш <b>никнейм</b>:", parse_mode="HTML")
     await state.set_state(RegistrationInline.nickname)
+
+
+@router.message(RegistrationInline.wait_for_contact, F.contact)
+async def receive_contact(message: Message, state: FSMContext):
+    # Only proceed if user is not already registered
+    user = await get_user_by_id(message.from_user.id)
+    if user:
+        await message.answer("Вы уже зарегистрированы.")
+        await state.clear()
+        return
+
+    # Save phone from shared contact and continue registration
+    contact = message.contact
+    phone = None
+    if contact and contact.phone_number:
+        phone = contact.phone_number
+    await state.update_data(phone=phone)
+    await message.answer("📝 Спасибо! Теперь введите ваше имя:", parse_mode="HTML")
+    await state.set_state(RegistrationInline.full_name)
 
 @router.message(RegistrationInline.nickname, F.text)
 async def get_nickname(message: Message, state: FSMContext):
